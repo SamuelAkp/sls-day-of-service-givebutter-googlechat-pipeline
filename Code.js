@@ -12,30 +12,7 @@ var CONFIG = {
 
 
 // ==========================================
-// 🧪 LIVE WEBHOOK SIMULATOR / TESTER
-// ==========================================
-function testMyWebhook() {
-  var fakeEvent = {
-    postData: {
-      contents: JSON.stringify({
-        data: {
-          first_name: "Lisa",
-          last_name: "Alexander",
-          email: "lisa.alexander@example.com",
-          amount: "200.00",
-          team_member: "Atlanta"
-        }
-      })
-    }
-  };
-  
-  doPost(fakeEvent);
-  Logger.log("Test execution completed! Check your spreadsheet and Google Chat Sandbox.");
-}
-
-
-// ==========================================
-//  1. LIVE WEBHOOK TRAFFIC COP
+// 🚦 1. LIVE WEBHOOK TRAFFIC COP
 // ==========================================
 function doPost(e) {
   var json = JSON.parse(e.postData.contents);
@@ -45,18 +22,37 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({"status": "skipped"})).setMimeType(ContentService.MimeType.JSON);
   }
   
-  var fullName = (data.first_name || "") + " " + (data.last_name || "");
-  var email = data.email || "";
+  var donorName = (data.first_name || "") + " " + (data.last_name || "");
+  var donorEmail = data.email || "";
   var amount = (data.amount && !isNaN(data.amount)) ? parseFloat(data.amount) : 0.00;
   
-  var teamName = data.team_member || data.team || "";
-  if (!teamName || teamName.trim().toLowerCase() === "our team") {
-    teamName = "General Campaign";
+  var scholarName = "General Campaign";
+  var scholarEmail = "";
+  if (data.member) {
+    scholarName = (data.member.first_name || "") + " " + (data.member.last_name || "");
+    scholarEmail = (data.member.email || "").toString().toLowerCase().trim();
   }
   
+  var atlantaEmails = ["samakproh@gmail.com", "amirion28@gmail.com", "birukgeremew05@gmail.com", "yanjohnny4@gmail.com", "bellamadison9108@gmail.com", "dawitkidaneyemane@gmail.com", "eaherndon07@gmail.com", "hassanb121286@gmail.com", "johnhana2006@gmail.com", "johnyilu60@gmail.com", "lajohnson0817@gmail.com", "mat.araujo.business@gmail.com", "mlhill1143@gmail.com", "napierceallen1@gmail.com", "naomitewodros6@gmail.com", "sutherlandnkosi@gmail.com", "ridhisaride01@gmail.com", "tmwilliams0924@gmail.com", "alicia@servantleaderscholars.org"];
+  var athensEmails = ["kevincnwogu@gmail.com", "kevin@servantleaderscholars.org", "ameyah@servantleaderscholars.org", "angel@servantleaderscholars.org", "awesome@servantleaderscholars.org", "cayla@servantleaderscholars.org", "hadassah@servantleaderscholars.org", "india@servantleaderscholars.org", "jonina@servantleaderscholars.org", "kayanna@servantleaderscholars.org", "kayla@servantleaderscholars.org", "khiari@servantleaderscholars.org", "latrina@servantleaderscholars.org", "marc@servantleaderscholars.org", "marquesmckinney@servantleaderscholars.org", "marques@servantleaderscholars.org", "najma@servantleaderscholars.org", "nethen@servantleaderscholars.org", "nic@servantleaderscholars.org", "nyaboke@servantleaderscholars.org", "ugonna@servantleaderscholars.org"];
+  
+  var teamCohort = "General Campaign";
+  if (atlantaEmails.indexOf(scholarEmail) !== -1) {
+    teamCohort = "Atlanta";
+  } else if (athensEmails.indexOf(scholarEmail) !== -1) {
+    teamCohort = "Athens";
+  } else {
+    var cleanDonorEmail = donorEmail.toString().toLowerCase().trim();
+    if (atlantaEmails.indexOf(cleanDonorEmail) !== -1) { teamCohort = "Atlanta"; scholarName = donorName; }
+    else if (athensEmails.indexOf(cleanDonorEmail) !== -1) { teamCohort = "Athens"; scholarName = donorName; }
+  }
+
+  // Resolve mapping for Column F immediately on incoming webhooks
+  scholarName = getCleanScholarName(donorEmail, scholarName);
+
   var ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   var currentDate = new Date(); 
-  var cleanIncomingEmail = email.toString().toLowerCase().trim();
+  var cleanIncomingEmail = donorEmail.toString().toLowerCase().trim();
   
   if (amount > 0) {
     var donorSheet = ss.getSheetByName("Donors");
@@ -65,13 +61,14 @@ function doPost(e) {
       var donorEmails = donorSheet.getRange("C1:C" + donorLastRow).getValues().flat().map(function(eStr) {
         return eStr.toString().toLowerCase().trim();
       });
-      if (donorEmails.indexOf(cleanIncomingEmail) !== -1) {
+      if (donorEmails.indexOf(cleanIncomingEmail) !== -1 && amount === 50.00) { // Safety trigger
         return ContentService.createTextOutput(JSON.stringify({"status": "duplicate donation skipped"})).setMimeType(ContentService.MimeType.JSON);
       }
     }
     
-    donorSheet.appendRow([currentDate, fullName, email, teamName, amount]);
-    sendGoogleChatNotification("💰 **NEW DONATION!** " + fullName + " just supported " + teamName + " with $" + amount.toFixed(2) + "! 🔥");
+    // Writes to Column F (Scholar Name) automatically!
+    donorSheet.appendRow([currentDate, donorName, donorEmail, teamCohort, amount, scholarName]);
+    sendGoogleChatNotification("💰 *NEW DONATION!* " + donorName + " just supported *" + scholarName + "* (" + teamCohort + ") with $" + amount.toFixed(2) + "! 🔥");
     
   } else {
     var volunteerSheet = ss.getSheetByName("Volunteers");
@@ -85,31 +82,27 @@ function doPost(e) {
       }
     }
     
-    volunteerSheet.appendRow([currentDate, fullName, email, teamName]);
+    volunteerSheet.appendRow([currentDate, donorName, donorEmail, teamCohort]);
     
     var reportSheet = ss.getSheetByName("Weekly Report");
     var liveVolunteerCount = reportSheet.getRange("G2").getValue();
     
-    var volunteerMessage = "🙋🏽‍♂️ **NEW VOLUNTEER REGISTERED!** \n\n" +
-                           "Huge thank you to " + fullName + " for signing up to serve during our **2026 Day Of Service**! 💛🔥\n\n" +
-                           "🚀 This takes our community total to **" + liveVolunteerCount + "** superstar volunteers mobilized!";
-                           
+    var volunteerMessage = "🙋🏽‍♂️ *NEW VOLUNTEER REGISTERED!* \n\n" +
+                           "Huge thank you to *" + donorName + "* for signing up to serve during our *2026 Day Of Service*! 💛🔥\n\n" +
+                           "🚀 This takes our community total to *" + liveVolunteerCount + "* superstar volunteers mobilized!";
+                               
     sendGoogleChatNotification(volunteerMessage);
   }
   
   return ContentService.createTextOutput(JSON.stringify({"status": "success"})).setMimeType(ContentService.MimeType.JSON);
 }
 
-
 // ==========================================
-//  2. AUTOMATED FRIDAY RECAP SCRIPT
+// 📊 2. AUTOMATED FRIDAY RECAP SCRIPT (MOBILE OPTIMIZED)
 // ==========================================
 function sendWeeklyRecap() {
   var ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   var reportSheet = ss.getSheetByName("Weekly Report");
-  
-  var today = new Date();
-  if (today.getDay() !== 5) return; 
   
   var totalRaised = reportSheet.getRange("B2").getValue();
   var weeklyDifference = reportSheet.getRange("E2").getValue();
@@ -124,98 +117,99 @@ function sendWeeklyRecap() {
   var advancedData = getAdvancedFundraisingData(ss);
   
   var top5String = "";
+  var emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
   for (var i = 0; i < advancedData.top5Rows.length; i++) {
-    top5String += (i + 1) + "️⃣ " + advancedData.top5Rows[i].name + " — $" + advancedData.top5Rows[i].amount.toFixed(2) + "\n";
+    top5String += emojis[i] + " " + advancedData.top5Rows[i].name + " — $" + advancedData.top5Rows[i].amount.toFixed(2) + "\n";
   }
   if (top5String === "") { top5String = "No individual donations registered yet! 🌱\n"; }
 
-  var wowSentence = "";
-  if (weeklyDifference > 0) {
-    wowSentence = "📈 **GROWTH MOMENTUM:** We pushed past last week's numbers by adding an incredible **$" + weeklyDifference.toFixed(2) + "** to our total this week alone! 🎉\n\n";
-  } else if (weeklyDifference === 0 && totalRaised > 0) {
-    wowSentence = "✊ **HOLDING STRONG:** We are maintaining our steady momentum from last week! Let's push for a big breakout weekend! 🚀\n\n";
+  // 📊 Calculate Percentage Growth Increase Dynamically
+  var lastWeekTotal = totalRaised - weeklyDifference;
+  var growthPercentageStr = "";
+  if (lastWeekTotal > 0) {
+    var pctIncrease = (weeklyDifference / lastWeekTotal) * 100;
+    growthPercentageStr = " (a massive *" + pctIncrease.toFixed(1) + "%* explosion!)";
   }
 
-  var message = "Good evening SLS Family! 👋🏽💙\n\n" +
-                "I hope y'all had an incredible week! 😄 With the holiday weekend behind us, let's keep that absolute fire burning hot for our campaign goals! 🔥\n\n" +
-                "Let's take a look at this week's recap for our 2026 DOS Campaign:\n\n" +
-                "                                 🚨 **SLS DAY OF SERVICE: WEEKLY SNAPSHOT** 🚨\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-                "💰 TOTAL FUNDS RAISED: $" + totalRaised.toFixed(2) + " / $" + CONFIG.GOAL_AMOUNT.toFixed(2) + " 🚀\n" +
-                "📈 PROGRESS TO GOAL: We are officially " + progressPercentage.toFixed(1) + "% of the way to our $5,000 finish line 🙌🏽!\n" +
-                "🙋🏽‍♂️ VOLUNTEERS MOBILIZED: " + totalVolunteers + " leaders signed up to serve!\n\n" +
-                wowSentence +
-                "🏆 COHORT LEADERBOARD TOPPER:\n" +
-                "👉 *" + winningTeam + " is officially leading the race with $" + winningAmount.toFixed(2) + " raised from " + contributorCount + " contributors!* 🔥⚔️\n\n" +
-                "🎖️ COHORT MVP SHOUTOUTS:\n" +
-                "🍑 **Atlanta Top Supporter:** " + advancedData.mvpAtlanta.name + " ($" + advancedData.mvpAtlanta.amount.toFixed(2) + ")\n" +
-                "🏛️ **Athens Top Supporter:** " + advancedData.mvpAthens.name + " ($" + advancedData.mvpAthens.amount.toFixed(2) + ")\n\n" +
-                "💎 INDIVIDUAL TOP 5 LEADERBOARD:\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                top5String + 
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-                "I want to take a moment to acknowledge all the incredible hard work every single one of you has poured into this week.\nLet's keep spreading the word and pushing this momentum forward over the weekend.\n\n" +
-                "Have a beautiful, restful weekend ahead! 💛💙";
-                
-  //  ROUTE OUTPUT: Sends directly to the Sandbox Chat room for layout validation
-  sendGoogleChatNotification(message);
+  var wowSentence = "";
+  if (weeklyDifference > 0) {
+    wowSentence = "📈 *GROWTH MOMENTUM:* We pushed past last week's numbers by adding an incredible *$" + weeklyDifference.toFixed(2) + "* to our total this week alone" + growthPercentageStr + "!! 🎉\n";
+  } else if (weeklyDifference === 0 && totalRaised > 0) {
+    wowSentence = "✊ *HOLDING STRONG:* We are maintaining our steady momentum from last week! Let's push for a big breakout weekend! 🚀\n";
+  }
 
-  // ==========================================
-  //  ARCHIVE ROUTINE: TARGETS HISTORICAL SEPARATE TAB
-  // ==========================================
-  var historySheet = ss.getSheetByName("Snapshot History");
-  var archiveRow = historySheet.getLastRow() + 1;
-  if (archiveRow <= 1) { archiveRow = 2; }
-  var weekLabel = "Week ending " + Utilities.formatDate(today, Session.getScriptTimeZone(), "MM/dd");
-  
-  historySheet.getRange(archiveRow, 1).setValue(weekLabel);
-  historySheet.getRange(archiveRow, 2).setValue(totalRaised);
-  historySheet.getRange(archiveRow, 3).setValue(totalVolunteers);
-  historySheet.getRange(archiveRow, 4).setValue(today);
-  
-  reportSheet.getRange("D2").setValue(totalRaised);
+  // 🏆 Custom Milestone Celebration Block
+  var milestoneCelebration = "";
+  if (totalRaised >= 1500.00) {
+    milestoneCelebration = "🎉🔥 *MAJOR MILESTONE ALERT:* We have officially shattered the *$1,500* mark together! Huge shoutout to the entire SLS family for locking in and pushing this movement forward. The momentum is unstoppable! 🙌🏽💙\n\n";
+  }
+
+  var mvpAtlantaName = advancedData.mvpAtlanta.name;
+  var mvpAtlantaAmt = advancedData.mvpAtlanta.amount;
+  var mvpAthensName = advancedData.mvpAthens.name;
+  var mvpAthensAmt = advancedData.mvpAthens.amount;
+
+  // 👑 Custom Leadership Co-Captain Shoutout
+  var leadershipShoutout = "👑 *LEADERSHIP SPOTLIGHT:*\n" +
+                           "⚡ Massive respect to *Mckenzie Hill* ($" + mvpAthensAmt.toFixed(2) + ") and *Samuel Akproh* ($" + mvpAtlantaAmt.toFixed(2) + ") for absolutely pacing the field and anchoring both of our cohorts this week! You two are setting the standard! 🏆🔥\n\n";
+
+  var message = "Good evening SLS Family 👋🏽💙! This is your favorite Bot, *Optimus Fine*, the finest bot on the internet 🤖😎! (ChatGPT got a secret crush on me y'all😉) \n\n" +
+                "I hope y'all had an incredible week! 😄 \n\n" +
+                "💻 *Microsoft Workshop Snapshot:*\n" +
+                "Our session at Microsoft today was absolutely amazing! Shoutout to all the scholars who locked in and learned with us. Let's redirect that inspiration straight toward crushing our service campaign! ⚡🚀\n\n" +
+                "Let's take a look at this week's recap for our 2026 DOS Campaign:\n\n" +
+                "🚨 *SLS DAY OF SERVICE: WEEKLY SNAPSHOT* 🚨\n" +
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+                milestoneCelebration +
+                "💰 *TOTAL FUNDS RAISED:* *$" + totalRaised.toFixed(2) + "* / $" + CONFIG.GOAL_AMOUNT.toFixed(2) + " 🚀\n\n" +
+                "📈 *PROGRESS TO GOAL:* We are officially *" + progressPercentage.toFixed(1) + "%* of the way to our $5,000 finish line 🙌🏽!\n\n" +
+                "🙋🏽‍♂️ *VOLUNTEERS MOBILIZED:* *" + totalVolunteers + "* leaders signed up to serve!\n\n" +
+                wowSentence + "\n" + 
+                "🏆 *COHORT LEADERBOARD TOPPER:*\n" +
+                "👉 *" + winningTeam + "* is officially leading the race with *$" + winningAmount.toFixed(2) + "* raised from *" + contributorCount + "* contributors! 🔥⚔️\n\n" +
+                "🎖️ *COHORT MVP SHOUTOUTS:*\n" +
+                "🍑 *Atlanta Top Supporter:* *" + mvpAtlantaName + "* ($" + mvpAtlantaAmt.toFixed(2) + " who else but HIM? 🤷‍♂️ )\n" +
+                "🏛️ *Athens Top Supporter:* *" + mvpAthensName + "* ($" + mvpAthensAmt.toFixed(2) + ")\n\n" +
+                leadershipShoutout +
+                "💎 *INDIVIDUAL TOP 5 LEADERBOARD:*\n" +
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+                top5String + 
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+                "👑 *CAMPAIGN HIGHEST DONOR SHOUTOUT:*\n" +
+                "🥇 Huge appreciation to *" + advancedData.topDonor.name + "* for anchoring our campaign with a massive single donation of *$" + advancedData.topDonor.amount.toFixed(2) + "*! You are a game-changer! 🙌🏽💎\n\n" +
+                "👏 *ACTIVE FUNDRAISERS:*\n" +
+                "Special shoutouts to our scholars actively generating donations: *" + advancedData.activeScholarsList + "*! Let's keep spreading the word and pushing this momentum forward over the weekend. All your hard work will reward us in the end! 🌟\n\n" +
+                "Have a beautiful, restful weekend ahead! 💛💙";
+
+  sendGoogleChatNotification(message);
 }
 
-
 // ==========================================
-// HELPER FUNCTION: DYNAMIC PIVOT TABLE SCANNER
+// 🔍 HELPER FUNCTION: DYNAMIC PIVOT TABLE SCANNER
 // ==========================================
 function getTopTeamData(sheet) {
   var lastRow = sheet.getLastRow();
   var defaultResult = { teamName: "No Cohort Yet", amountRaised: 0.00, contributors: 0 };
-  
   if (lastRow < 3) return defaultResult;
   
   var dataRange = sheet.getRange("I3:K" + lastRow).getValues();
-  var maxAmount = -1;
-  var topTeam = "";
-  var topContributors = 0;
+  var maxAmount = -1; var topTeam = ""; var topContributors = 0;
   
   for (var i = 0; i < dataRange.length; i++) {
     var team = dataRange[i][0] ? dataRange[i][0].toString().trim() : "";
     var amount = dataRange[i][1] && !isNaN(dataRange[i][1]) ? parseFloat(dataRange[i][1]) : 0;
     var count = dataRange[i][2] && !isNaN(dataRange[i][2]) ? parseInt(dataRange[i][2]) : 0;
-    
-    if (team === "" || team === "0" || team.toLowerCase().includes("grand total") || team.toLowerCase().includes("team / member")) {
-      continue;
-    }
+    if (team === "" || team === "0" || team.toLowerCase().includes("grand total") || team.toLowerCase().includes("team / member")) continue;
     
     if (amount > maxAmount) {
-      maxAmount = amount;
-      topTeam = team;
-      topContributors = count;
+      maxAmount = amount; topTeam = team; topContributors = count;
     }
   }
-  
-  if (topTeam !== "") {
-    return { teamName: topTeam, amountRaised: maxAmount, contributors: topContributors };
-  }
-  return defaultResult;
+  return topTeam !== "" ? { teamName: topTeam, amountRaised: maxAmount, contributors: topContributors } : defaultResult;
 }
 
-
 // ==========================================
-//  HELPER FUNCTION: RAW DATA AGGREGATION & MVP ANALYSIS
+// 🧠 HELPER FUNCTION: PRECISION HISTORICAL MAP & MVP ANALYSIS
 // ==========================================
 function getAdvancedFundraisingData(ss) {
   var donorSheet = ss.getSheetByName("Donors");
@@ -224,71 +218,138 @@ function getAdvancedFundraisingData(ss) {
   var result = {
     top5Rows: [],
     mvpAtlanta: { name: "No donations yet", amount: 0.00 },
-    mvpAthens: { name: "No donations yet", amount: 0.00 }
+    mvpAthens: { name: "No donations yet", amount: 0.00 },
+    topDonor: { name: "No donors yet", amount: 0.00 },
+    activeScholarsList: ""
   };
   
   if (lastRow < 2) return result;
   
-  var rawData = donorSheet.getRange("A2:E" + lastRow).getValues();
+  var rawData = donorSheet.getRange("A2:F" + lastRow).getValues();
   var individualMap = {};
   
   var maxAtlanta = 0;
   var maxAthens = 0;
+  var absoluteMaxDonation = 0;
+  var topDonorName = "";
+  
+  // Strict authorized whitelist of actual Fundraisers
+  var authorizedScholars = [
+    "India Knight", "Naomi Tewodros", "Samuel Akproh", "Kevin Nwogu", 
+    "Marc Lewis", "Lisa Alexander", "Awesome David", "Mckenzie Hill", "Chelsea Jester"
+  ];
   
   for (var i = 0; i < rawData.length; i++) {
-    var name = rawData[i][1] ? rawData[i][1].toString().trim() : "";
+    var donorName = rawData[i][1] ? rawData[i][1].toString().trim() : "";
+    var donorEmail = rawData[i][2] ? rawData[i][2].toString().trim().toLowerCase() : "";
     var team = rawData[i][3] ? rawData[i][3].toString().trim().toLowerCase() : "";
     var amount = rawData[i][4] && !isNaN(rawData[i][4]) ? parseFloat(rawData[i][4]) : 0.00;
+    var columnFScholar = rawData[i][5] ? rawData[i][5].toString().trim() : "";
     
-    if (name === "" || amount <= 0) continue;
+    if (amount <= 0) continue;
     
-    if (!individualMap[name]) {
-      individualMap[name] = 0.00;
+    // Track absolute highest single donor row
+    if (amount > absoluteMaxDonation) {
+      absoluteMaxDonation = amount;
+      topDonorName = donorName;
     }
-    individualMap[name] += amount;
     
-    if (team === "atlanta" && amount > maxAtlanta) {
-      maxAtlanta = amount;
-      result.mvpAtlanta = { name: name, amount: amount };
+    // Resolve scholar name using Column F first, falling back to clean mapped emails
+    var scholarName = "";
+    if (columnFScholar && columnFScholar !== "" && columnFScholar !== "General Campaign") {
+      scholarName = getCleanScholarName(donorEmail, columnFScholar);
+    } else {
+      scholarName = getCleanScholarName(donorEmail, donorName);
     }
-    if (team === "athens" && amount > maxAthens) {
-      maxAthens = amount;
-      result.mvpAthens = { name: name, amount: amount };
+    
+    // Skip general campaign lines
+    if (scholarName === "General Campaign" || scholarName === "") continue;
+    
+    // 🧠 DYNAMIC COHORT ALIGNMENT: Enforce cohort assignment to match true structural mapping
+    if (scholarName === "Mckenzie Hill") {
+      team = "athens";
+    } else if (scholarName === "Chelsea Jester") {
+      team = "general campaign";
+    }
+    
+    // Aggregate amounts
+    if (!individualMap[scholarName]) {
+      individualMap[scholarName] = 0.00;
+    }
+    individualMap[scholarName] += amount;
+    
+    // Calculate MVP based on active cohort status
+    if (team === "atlanta" && individualMap[scholarName] > maxAtlanta) {
+      maxAtlanta = individualMap[scholarName];
+      result.mvpAtlanta = { name: scholarName, amount: individualMap[scholarName] };
+    }
+    if (team === "athens" && individualMap[scholarName] > maxAthens) {
+      maxAthens = individualMap[scholarName];
+      result.mvpAthens = { name: scholarName, amount: individualMap[scholarName] };
     }
   }
   
+  result.topDonor = { name: topDonorName, amount: absoluteMaxDonation };
+  
   var sortedList = [];
+  var scholarsActive = [];
+  
+  // DYNAMIC FILTER: Group sorted active leaderboard & list
   for (var key in individualMap) {
-    sortedList.push({ name: key, amount: individualMap[key] });
+    if (authorizedScholars.indexOf(key) !== -1 && individualMap[key] > 0) {
+      sortedList.push({ name: key, amount: individualMap[key] });
+      scholarsActive.push(key);
+    }
   }
   sortedList.sort(function(a, b) { return b.amount - a.amount; });
   
   result.top5Rows = sortedList.slice(0, 5);
+  result.activeScholarsList = scholarsActive.join(", ");
+  
   return result;
 }
 
+// ==========================================
+// 🔗 DYNAMIC EMAIL-TO-SCHOLAR RESOLVER (HOLDS MAPPING TRUTHS)
+// ==========================================
+function getCleanScholarName(email, fallbackName) {
+  var cleanEmail = email.toString().toLowerCase().trim();
+  
+  if (cleanEmail === "kevincnwogu@gmail.com" || cleanEmail === "mattgreene95@gmail.com") {
+    return "Kevin Nwogu";
+  } else if (cleanEmail === "marc@servantleaderscholars.org" || cleanEmail === "dxfdjr@gmail.com" || cleanEmail === "hbj2392@gmail.com" || cleanEmail === "elkan499@gmail.com" || cleanEmail === "acdaniel4103@gmail.com") {
+    return "Marc Lewis";
+  } else if (cleanEmail === "nardosaraya@hotmail.com" || cleanEmail === "naomitewodros6@gmail.com") {
+    return "Naomi Tewodros";
+  } else if (cleanEmail === "dakproh@gmail.com" || cleanEmail === "rwoodrum1@gmail.com") {
+    return "Samuel Akproh";
+  } else if (cleanEmail === "alicia@servantleaderscholars.org") {
+    return "Lisa Alexander";
+  } else if (cleanEmail === "cydneyjjohnson@gmail.com") {
+    return "India Knight";
+  } else if (cleanEmail === "awesomedav99@gmail.com") {
+    return "Awesome David";
+  } else if (cleanEmail === "ymwalker1143@gmail.com" || cleanEmail === "mlhill1143@gmail.com" || cleanEmail === "ambestseller1108@gmail.com" || cleanEmail === "accounts@ismllc-engr.com" || cleanEmail === "aubern.marshall@yahoo.com") {
+    return "Mckenzie Hill";
+  } else if (cleanEmail === "nikidinell@gmail.com" || cleanEmail === "vtowns108@gmail.com" || cleanEmail === "townsl@bellsouth.net") {
+    return "Chelsea Jester";
+  }
+  
+  return fallbackName;
+}
+
+//  GOOGLE CHAT WEBHOOK SENDER
 
 // ==========================================
-// 3. GOOGLE CHAT SENDER (SANDBOX ALERTS)
-// ==========================================
+
 function sendGoogleChatNotification(text) {
-  var options = {
-    "method": "post",
-    "contentType": "application/json",
-    "payload": JSON.stringify({"text": text})
-  };
-  UrlFetchApp.fetch(CONFIG.URL_SANDBOX_CHAT, options);
-}
 
+  UrlFetchApp.fetch(CONFIG.URL_SANDBOX_CHAT, {
 
-// ==========================================
-// 4. DEDICATED MAIN CHANNEL SENDER (PRODUCTION RECAPS)
-// ==========================================
-function sendMainChannelNotification(text) {
-  var options = {
     "method": "post",
+
     "contentType": "application/json",
+
     "payload": JSON.stringify({"text": text})
-  };
-  UrlFetchApp.fetch(CONFIG.URL_MAIN_CHAT, options);
-}
+
+  });
